@@ -157,6 +157,9 @@ dl.keys dd{margin:0;color:var(--muted)}
 .node .body{fill:var(--panel);stroke:var(--line);stroke-width:1}
 .node.container .body{stroke:var(--edge);stroke-width:1.2}
 .node.sel .body{stroke:var(--sel);stroke-width:2}
+.node.sel{filter:drop-shadow(0 6px 14px rgba(10,20,40,.28))}
+.node .selring{fill:none;stroke:var(--sel);stroke-width:2.5;pointer-events:none}
+.node.dragging .selring{stroke-dasharray:6 4}
 .node.drop .body{stroke:var(--sel);stroke-width:2.5;stroke-dasharray:6 4}
 .node.dragging{opacity:.92}
 .node .ster{font:500 10.5px 'IBM Plex Mono',monospace;fill:rgba(255,255,255,.82)}
@@ -735,10 +738,12 @@ function stereo(n){
 function renderCanvas(){
   gEdges.textContent=''; gNodes.textContent=''; gPins.textContent='';
   const L=layout(dragIds?dragIds[0]:null);
+  // Draw order: dragged block on top, then the selected block (with everything inside it), then the rest
+  const selSet=sel&&sel.type==='node'&&byId(sel.id)?new Set(subtree(sel.id)):null;
+  const tier=x=>dragIds&&dragIds.includes(x.id)?4000:selSet&&selSet.has(x.id)?2000:0;
   const order=[...S.nodes].sort((a,b)=>{
-    const da=dragIds&&dragIds.includes(a.id)?1000:0, db=dragIds&&dragIds.includes(b.id)?1000:0;
     const ca=isContainerType(a)?0:500, cb=isContainerType(b)?0:500;
-    return (da+ca+depth(a))-(db+cb+depth(b));
+    return (tier(a)+ca+depth(a))-(tier(b)+cb+depth(b));
   });
   order.forEach(n=>drawNode(n,L[n.id]));
   drawInherits(L);
@@ -789,6 +794,9 @@ function drawNode(n,b){
     if(pin.custom){ const o={left:[-8,4,'end'],right:[8,4,'start'],top:[7,-5,'start'],bottom:[7,14,'start']}[pin.side]; tx({class:'plabel',x:px+o[0],y:py+o[1],'text-anchor':o[2]},clip(pin.name||'',16),pg); }
     const ti=el('title',null,pg); ti.textContent=`${pin.name} (${pin.kind}): drag along the edge to move, or onto another block to connect`;
   });
+  if(isSel){
+    el('rect',{class:'selring',x:-4,y:-4,width:b.w+8,height:b.h+8,rx:9},grp);
+  }
   if(isSel){
     const fits=kidsOf(n.id).length?' (the blocks inside resize to fit)':'';
     const rx=el('g',{class:'rhandle rx','data-axis':'x'},grp);
@@ -2720,7 +2728,13 @@ svg.addEventListener('pointerdown',ev=>{
     return;
   }
   if(node){
-    const n=byId(node.dataset.id), now=Date.now();
+    let n=byId(node.dataset.id);
+    if(ev.altKey){
+      // Alt+click: step to the next block stacked under the pointer
+      const stack=[...new Set(document.elementsFromPoint(ev.clientX,ev.clientY).map(e=>e.closest&&e.closest('#gNodes .node')).filter(Boolean).map(g=>g.dataset.id))];
+      if(stack.length>1){ const i=stack.indexOf(sel&&sel.type==='node'?sel.id:''); n=byId(stack[(i+1)%stack.length])||n; }
+    }
+    const now=Date.now();
     if(lastTap.id===n.id&&now-lastTap.t<350){ lastTap={id:null,t:0}; openProps(); }
     else lastTap={id:n.id,t:now};
     if(!(sel&&sel.type==='node'&&sel.id===n.id)) select({type:'node',id:n.id});
